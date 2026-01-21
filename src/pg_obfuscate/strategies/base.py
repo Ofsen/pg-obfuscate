@@ -23,7 +23,7 @@ class BaseStrategy(ABC):
         pass
 
     @staticmethod
-    def compute_seed(global_seed: int, table: str, column: str, value: Any) -> int:
+    def compute_seed(global_seed: int, table: str, column: str, value: Any, group: str | None = None) -> int:
         """Compute deterministic seed for a specific value.
         
         Args:
@@ -31,11 +31,18 @@ class BaseStrategy(ABC):
             table: Table name
             column: Column name
             value: Original value
+            group: Optional consistency group name
             
         Returns:
             Deterministic seed integer
         """
-        combined = f"{global_seed}:{table}:{column}:{value}"
+        if group:
+            # When a group is provided, we ignore table and column names
+            # to ensure consistent seeding across different tables/columns.
+            combined = f"{global_seed}:group:{group}:{value}"
+        else:
+            combined = f"{global_seed}:{table}:{column}:{value}"
+            
         # Use SHA-256 for stable determinism across runs/platforms
         digest = hashlib.sha256(combined.encode("utf-8")).digest()
         # Take first 8 bytes and convert to int

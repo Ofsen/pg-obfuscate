@@ -1,5 +1,6 @@
 """CLI entry point for pg-obfuscate."""
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -17,7 +18,8 @@ app = typer.Typer(
     help="A deterministic PostgreSQL database obfuscation CLI tool.",
     no_args_is_help=True,
 )
-console = Console()
+# Initialize console with forced UTF-8 to prevent encoding errors on non-UTF8 terminals (like Windows CMD/Powershell)
+console = Console(force_terminal=True, legacy_windows=False) if os.name == 'nt' else Console()
 
 
 def version_callback(value: bool) -> None:
@@ -76,11 +78,11 @@ def run(
     try:
         # Load configuration
         cfg = load_config(config)
-        console.print(f"[green]✓[/green] Loaded config from {config}")
+        console.print(f"[green][OK][/green] Loaded config from {config}")
 
         # Connect to database
         db = Database(db_url)
-        console.print(f"[green]✓[/green] Connected to database")
+        console.print(f"[green][OK][/green] Connected to database")
 
         # Get affected tables info
         obfuscator = Obfuscator(db, cfg)
@@ -107,7 +109,7 @@ def run(
 
         # Confirmation prompt
         if not force:
-            console.print("\n[bold red]⚠ WARNING:[/bold red] Make sure you have a backup!")
+            console.print("\n[bold red]WARNING:[/bold red] Make sure you have a backup!")
             confirm = typer.confirm("Proceed with obfuscation?", default=False)
             if not confirm:
                 console.print("Aborted.")
@@ -121,11 +123,11 @@ def run(
         for result in results:
             if result["success"]:
                 console.print(
-                    f"[green]✓[/green] {result['table']}: {result['rows_affected']} rows updated"
+                    f"[green][OK][/green] {result['table']}: {result['rows_affected']} rows updated"
                 )
             else:
                 console.print(
-                    f"[red]✗[/red] {result['table']}: {result['error']}"
+                    f"[red][ERROR][/red] {result['table']}: {result['error']}"
                 )
 
         console.print("\n[bold green]Obfuscation complete![/bold green]")
@@ -163,16 +165,16 @@ def validate(
     """Validate configuration file."""
     try:
         cfg = load_config(config)
-        console.print(f"[green]✓[/green] Config syntax is valid")
+        console.print(f"[green][OK][/green] Config syntax is valid")
 
         if db_url:
             db = Database(db_url)
             errors = cfg.validate_against_schema(db.get_schema())
             if errors:
                 for error in errors:
-                    console.print(f"[red]✗[/red] {error}")
+                    console.print(f"[red][ERROR][/red] {error}")
                 raise typer.Exit(2)
-            console.print(f"[green]✓[/green] Config matches database schema")
+            console.print(f"[green][OK][/green] Config matches database schema")
 
         console.print("\n[bold green]Validation passed![/bold green]")
 

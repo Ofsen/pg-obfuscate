@@ -41,6 +41,15 @@ class FakeStrategy(BaseStrategy):
     # Types that should not be converted to string
     NUMERIC_TYPES = {"int", "number", "float", "decimal"}
 
+    _faker_cache: dict[str, Faker] = {}
+    
+    @classmethod
+    def _get_faker(cls, locale: str = "en_US") -> Faker:
+        """Get or create cached Faker instance."""
+        if locale not in cls._faker_cache:
+            cls._faker_cache[locale] = Faker(locale)
+        return cls._faker_cache[locale]
+
     def __init__(self, fake_type: str):
         """Initialize with a specific fake type.
         
@@ -57,6 +66,8 @@ class FakeStrategy(BaseStrategy):
             )
         self.fake_type = fake_type
         self.faker_method = self.TYPE_MAPPING[fake_type]
+        # Pre-fetch the faker instance
+        self._fake = self._get_faker()
 
     def obfuscate(self, value: Any, seed: int, column_type: str | None = None) -> Any:
         """Generate fake value seeded by original.
@@ -72,9 +83,8 @@ class FakeStrategy(BaseStrategy):
         if value is None:
             return None
         
-        # Create Faker instance with specific seed for determinism
-        fake = Faker()
-        Faker.seed(seed)
+        # Seed the instance for determinism
+        self._fake.seed_instance(seed)
         
         # Determine limits if it's an integer type
         min_limit = None
@@ -87,7 +97,7 @@ class FakeStrategy(BaseStrategy):
         
         # Handle numeric types - match original value's scale
         if self.fake_type in self.NUMERIC_TYPES:
-            result = self._generate_matching_number(fake, value)
+            result = self._generate_matching_number(self._fake, value)
             
             # Enforce limits for integers
             if min_limit is not None and max_limit is not None:
@@ -95,7 +105,7 @@ class FakeStrategy(BaseStrategy):
             return result
         
         # Get the faker method and call it
-        method = getattr(fake, self.faker_method)
+        method = getattr(self._fake, self.faker_method)
         result = method()
         
         return str(result)

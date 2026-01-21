@@ -129,6 +129,7 @@ class Obfuscator:
                         table_config.qualified_name,
                         col_name,
                         original_value,
+                        group=col_config.consistency_group,
                     )
                     
                     # Get strategy

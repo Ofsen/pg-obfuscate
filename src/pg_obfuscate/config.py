@@ -18,14 +18,27 @@ class ColumnConfig:
     name: str
     strategy: str
     strategy_type: str | None = None  # For fake:email, fake:name, etc.
+    consistency_group: str | None = None
 
     @classmethod
-    def from_value(cls, name: str, value: str | None) -> "ColumnConfig":
+    def from_value(cls, name: str, value: Any) -> "ColumnConfig":
         """Parse column config from YAML value."""
         # Handle YAML null -> null strategy
         if value is None:
             return cls(name=name, strategy="null", strategy_type=None)
         
+        consistency_group = None
+        if isinstance(value, dict):
+            # Complex format: { strategy: "...", consistency_group: "..." }
+            strategy_val = value.get("strategy")
+            if not strategy_val:
+                raise ConfigError(f"Missing 'strategy' field for column '{name}'")
+            consistency_group = value.get("consistency_group")
+            value = strategy_val
+        
+        if not isinstance(value, str):
+            raise ConfigError(f"Strategy for column '{name}' must be a string or a dict")
+
         if ":" in value:
             strategy, strategy_type = value.split(":", 1)
         else:
@@ -39,7 +52,12 @@ class ColumnConfig:
         if strategy == "fake" and not strategy_type:
             raise ConfigError(f"fake strategy requires a type (e.g., fake:email) for column '{name}'")
         
-        return cls(name=name, strategy=strategy, strategy_type=strategy_type)
+        return cls(
+            name=name, 
+            strategy=strategy, 
+            strategy_type=strategy_type,
+            consistency_group=consistency_group
+        )
 
 
 @dataclass

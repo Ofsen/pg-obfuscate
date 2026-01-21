@@ -82,12 +82,12 @@ tables:
     config = load_config(config_file)
     
     schema = {
-        "users": ["id", "email", "name"],
-        "orders": ["id", "total"]
+        "public.users": ["id", "email", "name"],
+        "public.orders": ["id", "total"]
     }
     
     errors = config.validate_against_schema(schema)
     assert len(errors) == 2
     error_messages = set(errors)
-    assert "Table 'unknown_table' not found in database" in error_messages
-    assert "Column 'unknown_col' not found in table 'users'" in error_messages
+    assert "Table 'public.unknown_table' not found in database" in error_messages
+    assert "Column 'unknown_col' not found in table 'public.users'" in error_messages

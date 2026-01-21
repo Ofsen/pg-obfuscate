@@ -58,12 +58,13 @@ class FakeStrategy(BaseStrategy):
         self.fake_type = fake_type
         self.faker_method = self.TYPE_MAPPING[fake_type]
 
-    def obfuscate(self, value: Any, seed: int) -> Any:
+    def obfuscate(self, value: Any, seed: int, column_type: str | None = None) -> Any:
         """Generate fake value seeded by original.
         
         Args:
             value: Original value (used for seeding and scale matching)
             seed: Computed seed for determinism
+            column_type: Optional database column type for enforcing limits
             
         Returns:
             Fake value of the configured type
@@ -75,9 +76,23 @@ class FakeStrategy(BaseStrategy):
         fake = Faker()
         Faker.seed(seed)
         
+        # Determine limits if it's an integer type
+        min_limit = None
+        max_limit = None
+        
+        if column_type == "int2":  # smallint
+            min_limit, max_limit = -32768, 32767
+        elif column_type == "int4":  # integer
+            min_limit, max_limit = -2147483648, 2147483647
+        
         # Handle numeric types - match original value's scale
         if self.fake_type in self.NUMERIC_TYPES:
-            return self._generate_matching_number(fake, value)
+            result = self._generate_matching_number(fake, value)
+            
+            # Enforce limits for integers
+            if min_limit is not None and max_limit is not None:
+                return max(min_limit, min(max_limit, int(result)))
+            return result
         
         # Get the faker method and call it
         method = getattr(fake, self.faker_method)

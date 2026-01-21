@@ -9,12 +9,13 @@ class BaseStrategy(ABC):
     """Abstract base class for obfuscation strategies."""
 
     @abstractmethod
-    def obfuscate(self, value: Any, seed: int) -> Any:
+    def obfuscate(self, value: Any, seed: int, column_type: str | None = None) -> Any:
         """Obfuscate a value deterministically.
         
         Args:
             value: Original value to obfuscate
             seed: Seed for deterministic output
+            column_type: Optional database column type for enforcing limits
             
         Returns:
             Obfuscated value

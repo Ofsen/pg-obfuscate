@@ -44,3 +44,11 @@ def test_fake_unsupported_type():
 def test_fake_null_handling():
     strategy = FakeStrategy("email")
     assert strategy.obfuscate(None, 123) is None
+
+def test_fake_int2_limits():
+    strategy = FakeStrategy("int")
+    # Original value has many digits, but column is int2 (smallint)
+    # 100,000 would normally generate a 6-digit number, which overflows smallint
+    val = strategy.obfuscate(100000, 123, column_type="int2")
+    assert val <= 32767
+    assert val >= -32768

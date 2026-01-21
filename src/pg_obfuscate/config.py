@@ -46,16 +46,33 @@ class ColumnConfig:
 class TableConfig:
     """Configuration for a single table."""
     name: str
+    schema: str = "public"
     columns: list[ColumnConfig] = field(default_factory=list)
 
+    @property
+    def qualified_name(self) -> str:
+        """Get schema-qualified name (schema.table)."""
+        return f"{self.schema}.{self.name}"
+
     @classmethod
-    def from_dict(cls, name: str, columns: dict[str, str]) -> "TableConfig":
-        """Parse table config from YAML dict."""
+    def from_dict(cls, key: str, columns: dict[str, str]) -> "TableConfig":
+        """Parse table config from YAML dict key and columns.
+        
+        Args:
+            key: Table name key (e.g. 'users' or 'auth.users')
+            columns: Column config dict
+        """
+        if "." in key:
+            schema_name, table_name = key.split(".", 1)
+        else:
+            schema_name = "public"
+            table_name = key
+            
         column_configs = [
             ColumnConfig.from_value(col_name, strategy)
             for col_name, strategy in columns.items()
         ]
-        return cls(name=name, columns=column_configs)
+        return cls(name=table_name, schema=schema_name, columns=column_configs)
 
 
 @dataclass
@@ -75,15 +92,21 @@ class Config:
         """
         errors = []
         for table in self.tables:
-            if table.name not in schema:
-                errors.append(f"Table '{table.name}' not found in database")
+            # We assume schema keys are qualified 'schema.table'
+            # But the DB.get_schema needs to change first to return qualified keys.
+            # We will handle backward compatibility or update DB concurrently.
+            # Let's assume schema keys will be 'schema.table'
+            
+            # Try qualified match first
+            if table.qualified_name not in schema:
+                errors.append(f"Table '{table.qualified_name}' not found in database")
                 continue
             
-            db_columns = schema[table.name]
+            db_columns = schema[table.qualified_name]
             for column in table.columns:
                 if column.name not in db_columns:
                     errors.append(
-                        f"Column '{column.name}' not found in table '{table.name}'"
+                        f"Column '{column.name}' not found in table '{table.qualified_name}'"
                     )
         
         return errors

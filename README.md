@@ -1,13 +1,18 @@
 # pg-obfuscate
 
-A deterministic PostgreSQL database obfuscation CLI tool.
+pg-obfuscate is a developer-first CLI tool that deterministically obfuscates
+sensitive data in PostgreSQL databases.
 
-## Features
+It allows teams to safely share production-like datasets across development,
+staging, and testing environments without leaking real user data.
+
+pg-obfuscate is designed to be:
 
 - **Deterministic** - Same input + same config = same output
-- **Safe by default** - Dry-run mode, confirmation prompts, backup warnings
-- **Extensible** - Multiple obfuscation strategies
-- **CI-friendly** - Clear exit codes, structured output
+- **Schema-aware** - Target `public` or custom schemas (e.g., `auth.users`)
+- **Scalable** - Uses server-side cursors and batch updates for high performance and low memory footprint
+- **Safe by default** - Dry-run mode, confirmation prompts, and integer overflow protection
+- **Extensible** - Multiple obfuscation strategies with precise type casting
 
 ## Installation
 
@@ -26,13 +31,14 @@ pip install -e .
 ```yaml
 seed: 12345
 tables:
+  # Tables default to 'public' schema
   users:
     email: fake:email
     name: fake:name
-    phone: null
-  payments:
-    card_number: hash
-    amount: preserve
+  # Access other schemas using schema.table
+  auth.accounts:
+    username: fake:username
+    password_hash: hash
 ```
 
 2. Run with dry-run first:
@@ -46,6 +52,15 @@ pg-obfuscate run --db-url postgres://user:pass@localhost/db --config config.yaml
 ```bash
 pg-obfuscate run --db-url postgres://user:pass@localhost/db --config config.yaml
 ```
+
+## Performance & Scalability
+
+`pg-obfuscate` is designed to handle production-scale databases:
+
+- **Streaming**: Data is streamed from PostgreSQL using server-side cursors, preventing Out-of-Memory (OOM) errors even on million-row tables.
+- **Batching**: Updates are executed in batches (2,000 rows by default) to minimize network round-trips and maximize throughput.
+- **Type Safety**: Automatically detects column types to apply explicit casting (e.g., `v::timestamp`), ensuring compatibility with complex PostgreSQL types.
+- **Integer Safety**: Automatically detects `smallint` (int2) and `integer` (int4) columns to prevent overflow errors during data generation.
 
 ## Commands
 
@@ -68,32 +83,18 @@ pg-obfuscate run --db-url postgres://user:pass@localhost/db --config config.yaml
 
 **Text types:** `email`, `name`, `first_name`, `last_name`, `phone`, `address`, `company`, `text`, `city`, `country`, `postcode`, `street_address`, `job`, `url`, `username`, `uuid`
 
-**Numeric types:** `int`, `number`, `float`, `decimal`
+**Numeric types:** `int`, `number`, `float`, `decimal` (Magnitude matching + size safety)
 
 **Date types:** `date`, `datetime`
-
-## Configuration
-
-```yaml
-# Global seed for determinism
-seed: 12345
-
-# Tables to obfuscate
-tables:
-  users:
-    email: fake:email # Generate fake email
-    name: fake:name # Generate fake name
-    ssn: hash # Hash the value
-    notes: null # Set to NULL
-    id: preserve # Keep unchanged
-```
 
 ## Safety Features
 
 - `--dry-run` - Preview without making changes
+- `--force` - Skip confirmation prompt
 - Confirmation prompt before execution
 - Backup warning displayed
 - Per-table transactions (rollback on error)
+- Integer range enforcement (prevents overflow crashes)
 
 ## Exit Codes
 

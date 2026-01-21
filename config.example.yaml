@@ -1,5 +1,6 @@
 seed: 12345
 tables:
+  # Tables default to 'public' schema. Use 'schema.table' for other schemas.
   users:
     email: fake:email
     username: fake:name

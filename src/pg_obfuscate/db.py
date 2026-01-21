@@ -38,33 +38,38 @@ class Database:
         """Get database schema.
         
         Returns:
-            Dict mapping table names to list of column names
+            Dict mapping qualified table names (schema.table) to list of column names
         """
         with self.conn.cursor() as cur:
             cur.execute("""
-                SELECT table_name, column_name
+                SELECT table_schema, table_name, column_name
                 FROM information_schema.columns
-                WHERE table_schema = 'public'
-                ORDER BY table_name, ordinal_position
+                WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
+                ORDER BY table_schema, table_name, ordinal_position
             """)
             
             schema: dict[str, list[str]] = {}
-            for table_name, column_name in cur.fetchall():
-                if table_name not in schema:
-                    schema[table_name] = []
-                schema[table_name].append(column_name)
+            for table_schema, table_name, column_name in cur.fetchall():
+                qualified_name = f"{table_schema}.{table_name}"
+                if qualified_name not in schema:
+                    schema[qualified_name] = []
+                schema[qualified_name].append(column_name)
             
             return schema
 
-    def get_primary_key(self, table_name: str) -> list[str]:
+    def get_primary_key(self, schema_name: str, table_name: str) -> list[str]:
         """Get primary key columns for a table.
         
         Args:
-            table_name: Name of the table
+            schema_name: Schema name
+            table_name: Table name
             
         Returns:
             List of primary key column names (empty if none)
         """
+        # PostgreSQL regclass handles schema.table correctly if passed as string
+        qualified_name = f"{schema_name}.{table_name}"
+        
         with self.conn.cursor() as cur:
             cur.execute("""
                 SELECT a.attname
@@ -73,33 +78,36 @@ class Database:
                 WHERE i.indrelid = %s::regclass
                 AND i.indisprimary
                 ORDER BY array_position(i.indkey, a.attnum)
-            """, (table_name,))
+            """, (qualified_name,))
             
             return [row[0] for row in cur.fetchall()]
 
-    def get_row_count(self, table_name: str) -> int:
+    def get_row_count(self, schema_name: str, table_name: str) -> int:
         """Get row count for a table.
         
         Args:
-            table_name: Name of the table
+            schema_name: Schema name
+            table_name: Table name
             
         Returns:
             Number of rows
         """
         with self.conn.cursor() as cur:
             cur.execute(
-                sql.SQL("SELECT COUNT(*) FROM {}").format(
+                sql.SQL("SELECT COUNT(*) FROM {}.{}").format(
+                    sql.Identifier(schema_name),
                     sql.Identifier(table_name)
                 )
             )
             result = cur.fetchone()
             return result[0] if result else 0
 
-    def get_column_types(self, table_name: str) -> dict[str, str]:
+    def get_column_types(self, schema_name: str, table_name: str) -> dict[str, str]:
         """Get column types for a table.
         
         Args:
-            table_name: Name of the table
+            schema_name: Schema name
+            table_name: Table name
             
         Returns:
             Dict mapping column names to their UDT type name (e.g. 'int4', 'varchar')
@@ -109,13 +117,14 @@ class Database:
                 SELECT column_name, udt_name
                 FROM information_schema.columns
                 WHERE table_name = %s
-                AND table_schema = 'public'
-            """, (table_name,))
+                AND table_schema = %s
+            """, (table_name, schema_name))
             
             return {row[0]: row[1] for row in cur.fetchall()}
 
     def iter_rows(
         self,
+        schema_name: str,
         table_name: str,
         columns: list[str],
         pk_columns: list[str],
@@ -124,6 +133,7 @@ class Database:
         """Iterate over rows using a server-side cursor.
         
         Args:
+            schema_name: Schema name
             table_name: Name of the table
             columns: Columns to fetch for obfuscation
             pk_columns: Primary key columns (empty if using ctid)
@@ -136,13 +146,14 @@ class Database:
         if not pk_columns:
             # Use ctid if no PK
             select_cols = ["ctid"] + columns
-            cursor_name = f"cur_{table_name}_ctid"
+            cursor_name = f"cur_{schema_name}_{table_name}_ctid"
         else:
             select_cols = list(set(pk_columns + columns))
-            cursor_name = f"cur_{table_name}_pk"
+            cursor_name = f"cur_{schema_name}_{table_name}_pk"
 
-        query = sql.SQL("SELECT {} FROM {}").format(
+        query = sql.SQL("SELECT {} FROM {}.{}").format(
             sql.SQL(", ").join(sql.Identifier(c) for c in select_cols),
+            sql.Identifier(schema_name),
             sql.Identifier(table_name)
         )
 
@@ -164,6 +175,7 @@ class Database:
 
     def update_batch(
         self,
+        schema_name: str,
         table_name: str,
         pk_columns: list[str],
         batch_data: list[dict[str, Any]],
@@ -173,6 +185,7 @@ class Database:
         """Update multiple rows in a single query.
         
         Args:
+            schema_name: Schema name
             table_name: Name of the table
             pk_columns: Primary key columns (empty if using ctid)
             batch_data: List of dicts containing PK/ctid and new values
@@ -215,16 +228,8 @@ class Database:
             
             # Apply cast if type is known
             if column_types and col in column_types:
-                # Handle array types that might start with underscore in udt_name (e.g. _int4)
                 type_name = column_types[col]
-                if type_name.startswith('_'):
-                     # Convert _int4 to int4[] for safer casting syntax if needed, 
-                     # but Postgres usually accepts ::_int4 too.
-                     # Let's try direct udt_name first.
-                     cast_expr = sql.SQL("{}::{}").format(source_val, sql.SQL(type_name))
-                else:
-                     cast_expr = sql.SQL("{}::{}").format(source_val, sql.SQL(type_name))
-                
+                cast_expr = sql.SQL("{}::{}").format(source_val, sql.SQL(type_name))
                 assignment = sql.SQL("{} = {}").format(target_col, cast_expr)
             else:
                 assignment = sql.SQL("{} = {}").format(target_col, source_val)
@@ -239,13 +244,11 @@ class Database:
             target_col = sql.Identifier(col)
             source_val = sql.Identifier(val_alias)
             
-            # We might need to cast PKs too if they are UUIDs or special types
             if column_types and col in column_types:
                 type_name = column_types[col]
                 cast_expr = sql.SQL("{}::{}").format(source_val, sql.SQL(type_name))
                 assignment = sql.SQL("{} = {}").format(target_col, cast_expr)
             elif col == 'ctid':
-                # ctid needs explicit cast to tid usually, or string literal works
                 assignment = sql.SQL("{} = {}::tid").format(target_col, source_val)
             else:
                 assignment = sql.SQL("{} = {}").format(target_col, source_val)
@@ -255,13 +258,14 @@ class Database:
         where_clause = sql.SQL(" AND ").join(id_assignments)
 
         # Full query:
-        # UPDATE table AS t
+        # UPDATE schema.table AS t
         # SET ...
         # FROM (VALUES %s) AS v(...)
         # WHERE ...
         query = sql.SQL(
-            "UPDATE {} AS t SET {} FROM (VALUES %s) AS v({}) WHERE {}"
+            "UPDATE {}.{} AS t SET {} FROM (VALUES %s) AS v({}) WHERE {}"
         ).format(
+            sql.Identifier(schema_name),
             sql.Identifier(table_name),
             set_clause,
             sql.SQL(", ").join(sql.Identifier(a) for a in values_alias_cols),

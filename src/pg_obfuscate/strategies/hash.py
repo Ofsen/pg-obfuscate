@@ -9,7 +9,7 @@ from pg_obfuscate.strategies.base import BaseStrategy
 class HashStrategy(BaseStrategy):
     """SHA256 hash obfuscation strategy."""
 
-    def obfuscate(self, value: Any, seed: int) -> str:
+    def obfuscate(self, value: Any, seed: int, column_type: str | None = None) -> str:
         """Hash value with seed salt.
         
         Args:

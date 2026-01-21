@@ -59,9 +59,9 @@ class Obfuscator:
         """
         summary = []
         for table_config in self.config.tables:
-            row_count = self.db.get_row_count(table_config.name)
+            row_count = self.db.get_row_count(table_config.schema, table_config.name)
             summary.append({
-                "table": table_config.name,
+                "table": table_config.qualified_name,
                 "columns": [col.name for col in table_config.columns],
                 "row_count": row_count,
             })
@@ -90,23 +90,24 @@ class Obfuscator:
         Returns:
             Result dict with success status and row count
         """
+        schema_name = table_config.schema
         table_name = table_config.name
         # Ensure we fetch all configured columns
         column_names = [col.name for col in table_config.columns]
         
         try:
             # Get primary key columns
-            pk_columns = self.db.get_primary_key(table_name)
+            pk_columns = self.db.get_primary_key(schema_name, table_name)
             
-            # Fetch column types for casting
-            column_types = self.db.get_column_types(table_name)
+            # Fetch column types for casting and strategy limits
+            column_types = self.db.get_column_types(schema_name, table_name)
             
             rows_affected = 0
             batch_updates = []
             BATCH_SIZE = 2000
             
             # Iterate over rows (streaming)
-            for row in self.db.iter_rows(table_name, column_names, pk_columns, batch_size=BATCH_SIZE):
+            for row in self.db.iter_rows(schema_name, table_name, column_names, pk_columns, batch_size=BATCH_SIZE):
                 updates = {}
                 
                 # Determine Identity (PK or ctid)
@@ -125,17 +126,19 @@ class Obfuscator:
                     # Compute deterministic seed
                     seed = BaseStrategy.compute_seed(
                         self.config.seed,
-                        table_name,
+                        table_config.qualified_name,
                         col_name,
                         original_value,
                     )
                     
-                    # Get strategy and obfuscate
+                    # Get strategy
                     strategy = self._get_strategy(col_config)
-                    new_value = strategy.obfuscate(original_value, seed)
                     
-                    # For batch updates, we must provide values for all columns in the SET clause
-                    # even if they haven't changed, because the single SQL query has a fixed structure.
+                    # Pass column type info if available (for integer safety)
+                    col_type = column_types.get(col_name)
+                    new_value = strategy.obfuscate(original_value, seed, col_type)
+                    
+                    # For batch updates, we must provide values for all columns
                     updates[col_name] = new_value
                 
                 # Add to batch
@@ -147,6 +150,7 @@ class Obfuscator:
                 # Flush batch if full
                 if len(batch_updates) >= BATCH_SIZE:
                     rows_affected += self.db.update_batch(
+                        schema_name,
                         table_name,
                         pk_columns,
                         batch_updates,
@@ -158,6 +162,7 @@ class Obfuscator:
             # Flush remaining items
             if batch_updates:
                 rows_affected += self.db.update_batch(
+                    schema_name,
                     table_name,
                     pk_columns,
                     batch_updates,
@@ -165,11 +170,11 @@ class Obfuscator:
                     column_types
                 )
             
-            # Commit transaction for this table
+            # Commit transaction for this table (Warning: Per-table atomicity only)
             self.db.commit()
             
             return {
-                "table": table_name,
+                "table": table_config.qualified_name,
                 "success": True,
                 "rows_affected": rows_affected,
             }
@@ -178,7 +183,7 @@ class Obfuscator:
             # Rollback on error
             self.db.rollback()
             return {
-                "table": table_name,
+                "table": table_config.qualified_name,
                 "success": False,
                 "error": str(e),
                 "rows_affected": 0,

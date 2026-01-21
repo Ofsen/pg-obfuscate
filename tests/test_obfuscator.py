@@ -46,27 +46,29 @@ def test_process_table_pk_batch(mock_db, sample_config):
     # Rows affected comes from update_batch return value
     assert result["rows_affected"] == 2
     
-    # Verify we called iter_rows
+    # Verify we called iter_rows with schema
     mock_db.iter_rows.assert_called_once()
+    assert mock_db.iter_rows.call_args[0][0] == "public"
     
     # Verify we called get_column_types
-    mock_db.get_column_types.assert_called_once()
+    mock_db.get_column_types.assert_called()
     
     # Verify update_batch was called with correct data
     mock_db.update_batch.assert_called()
     args = mock_db.update_batch.call_args_list[0]
     
-    # Check update columns (should include email AND age because of batch structure)
-    update_cols = args[0][3]
+    # update_batch(schema_name, table_name, pk_columns, batch_data, update_columns, column_types)
+    # Check update columns (should include email AND age)
+    update_cols = args[0][4]
     assert "email" in update_cols
     assert "age" in update_cols
     
     # Check column types passed
-    types = args[0][4]
+    types = args[0][5]
     assert types["email"] == "varchar"
     
     # Check batch payload
-    batch_data = args[0][2]
+    batch_data = args[0][3]
     assert len(batch_data) == 2
     assert batch_data[0]["id"] == 1
     assert batch_data[1]["id"] == 2
@@ -79,17 +81,23 @@ def test_process_table_ctid(mock_db, sample_config):
     ]
     mock_db.update_batch.return_value = 1
     
+    # Mock get_column_types
+    mock_db.get_column_types.return_value = {"email": "varchar", "age": "int4"}
+    
     obfuscator = Obfuscator(mock_db, sample_config)
     obfuscator._process_table(sample_config.tables[0])
     
     # Verify update_batch uses ctid
     mock_db.update_batch.assert_called_once()
     args = mock_db.update_batch.call_args
-    batch_data = args[0][2]
+    # update_batch(schema_name, table_name, pk_columns, batch_data, ...)
+    batch_data = args[0][3]
     assert batch_data[0]["ctid"] == "(0,1)"
 
 def test_error_rollback(mock_db, sample_config):
     mock_db.iter_rows.side_effect = Exception("DB Error")
+    # Mock get_column_types for the try block
+    mock_db.get_column_types.return_value = {}
     
     obfuscator = Obfuscator(mock_db, sample_config)
     result = obfuscator._process_table(sample_config.tables[0])

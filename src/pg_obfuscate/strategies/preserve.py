@@ -8,7 +8,7 @@ from pg_obfuscate.strategies.base import BaseStrategy
 class PreserveStrategy(BaseStrategy):
     """Strategy that preserves original values."""
 
-    def obfuscate(self, value: Any, seed: int) -> Any:
+    def obfuscate(self, value: Any, seed: int, column_type: str | None = None) -> Any:
         """Return original value unchanged.
         
         Args:

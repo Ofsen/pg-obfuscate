@@ -1,0 +1,13 @@
+seed: 12345
+tables:
+  users:
+    email: fake:email
+    username: fake:name
+    phone: null
+    created_at: fake:datetime
+  orders:
+    order_total: fake:decimal
+    tax_amount: null
+    status: preserve
+  profiles:
+    height: fake:number

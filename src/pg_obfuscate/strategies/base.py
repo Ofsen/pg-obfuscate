@@ -1,5 +1,6 @@
 """Base strategy interface."""
 
+import hashlib
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -34,5 +35,7 @@ class BaseStrategy(ABC):
             Deterministic seed integer
         """
         combined = f"{global_seed}:{table}:{column}:{value}"
-        # Use hash and ensure positive integer
-        return abs(hash(combined))
+        # Use SHA-256 for stable determinism across runs/platforms
+        digest = hashlib.sha256(combined.encode("utf-8")).digest()
+        # Take first 8 bytes and convert to int
+        return int.from_bytes(digest[:8], byteorder="big")

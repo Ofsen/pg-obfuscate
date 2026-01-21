@@ -82,7 +82,7 @@ class Obfuscator:
         return results
 
     def _process_table(self, table_config) -> dict[str, Any]:
-        """Process a single table.
+        """Process a single table using batch processing.
         
         Args:
             table_config: Table configuration
@@ -91,24 +91,33 @@ class Obfuscator:
             Result dict with success status and row count
         """
         table_name = table_config.name
+        # Ensure we fetch all configured columns
         column_names = [col.name for col in table_config.columns]
         
         try:
             # Get primary key columns
             pk_columns = self.db.get_primary_key(table_name)
-            use_ctid = len(pk_columns) == 0
             
-            # Fetch rows
-            if use_ctid:
-                rows = self.db.fetch_rows_with_ctid(table_name, column_names)
-            else:
-                rows = self.db.fetch_rows(table_name, column_names, pk_columns)
+            # Fetch column types for casting
+            column_types = self.db.get_column_types(table_name)
             
             rows_affected = 0
+            batch_updates = []
+            BATCH_SIZE = 2000
             
-            for row in rows:
+            # Iterate over rows (streaming)
+            for row in self.db.iter_rows(table_name, column_names, pk_columns, batch_size=BATCH_SIZE):
                 updates = {}
                 
+                # Determine Identity (PK or ctid)
+                identity = {}
+                if pk_columns:
+                    for pk in pk_columns:
+                        identity[pk] = row[pk]
+                else:
+                    identity["ctid"] = row["ctid"]
+
+                # Process columns
                 for col_config in table_config.columns:
                     col_name = col_config.name
                     original_value = row.get(col_name)
@@ -125,18 +134,36 @@ class Obfuscator:
                     strategy = self._get_strategy(col_config)
                     new_value = strategy.obfuscate(original_value, seed)
                     
-                    # Only update if value changed
-                    if new_value != original_value:
-                        updates[col_name] = new_value
+                    # For batch updates, we must provide values for all columns in the SET clause
+                    # even if they haven't changed, because the single SQL query has a fixed structure.
+                    updates[col_name] = new_value
                 
-                # Apply updates
+                # Add to batch
                 if updates:
-                    if use_ctid:
-                        self.db.update_row_by_ctid(table_name, row["ctid"], updates)
-                    else:
-                        pk_values = {pk: row[pk] for pk in pk_columns}
-                        self.db.update_row(table_name, pk_columns, pk_values, updates)
-                    rows_affected += 1
+                    # Merge identity and updates for the batch payload
+                    batch_item = {**identity, **updates}
+                    batch_updates.append(batch_item)
+                
+                # Flush batch if full
+                if len(batch_updates) >= BATCH_SIZE:
+                    rows_affected += self.db.update_batch(
+                        table_name,
+                        pk_columns,
+                        batch_updates,
+                        column_names,
+                        column_types
+                    )
+                    batch_updates = []
+            
+            # Flush remaining items
+            if batch_updates:
+                rows_affected += self.db.update_batch(
+                    table_name,
+                    pk_columns,
+                    batch_updates,
+                    column_names,
+                    column_types
+                )
             
             # Commit transaction for this table
             self.db.commit()

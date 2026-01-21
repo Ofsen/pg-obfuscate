@@ -1,9 +1,9 @@
 """Database connection and schema operations."""
 
-from typing import Any
+from typing import Any, Iterator, Optional
 
 import psycopg2
-from psycopg2 import sql
+from psycopg2 import sql, extras
 
 
 class DatabaseError(Exception):
@@ -95,128 +95,188 @@ class Database:
             result = cur.fetchone()
             return result[0] if result else 0
 
-    def fetch_rows(self, table_name: str, columns: list[str], pk_columns: list[str]) -> list[dict[str, Any]]:
-        """Fetch rows from table with specified columns.
+    def get_column_types(self, table_name: str) -> dict[str, str]:
+        """Get column types for a table.
+        
+        Args:
+            table_name: Name of the table
+            
+        Returns:
+            Dict mapping column names to their UDT type name (e.g. 'int4', 'varchar')
+        """
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                SELECT column_name, udt_name
+                FROM information_schema.columns
+                WHERE table_name = %s
+                AND table_schema = 'public'
+            """, (table_name,))
+            
+            return {row[0]: row[1] for row in cur.fetchall()}
+
+    def iter_rows(
+        self,
+        table_name: str,
+        columns: list[str],
+        pk_columns: list[str],
+        batch_size: int = 2000
+    ) -> Iterator[dict[str, Any]]:
+        """Iterate over rows using a server-side cursor.
         
         Args:
             table_name: Name of the table
             columns: Columns to fetch for obfuscation
-            pk_columns: Primary key columns for identification
+            pk_columns: Primary key columns (empty if using ctid)
+            batch_size: Number of rows to fetch from server at once
             
-        Returns:
-            List of dicts with column values
+        Yields:
+            Dict with column values
         """
-        all_columns = list(set(pk_columns + columns))
-        
-        with self.conn.cursor() as cur:
-            cur.execute(
-                sql.SQL("SELECT {} FROM {}").format(
-                    sql.SQL(", ").join(sql.Identifier(c) for c in all_columns),
-                    sql.Identifier(table_name)
-                )
-            )
-            
-            rows = []
-            for row in cur.fetchall():
-                rows.append(dict(zip(all_columns, row)))
-            
-            return rows
+        # Determine identifying columns
+        if not pk_columns:
+            # Use ctid if no PK
+            select_cols = ["ctid"] + columns
+            cursor_name = f"cur_{table_name}_ctid"
+        else:
+            select_cols = list(set(pk_columns + columns))
+            cursor_name = f"cur_{table_name}_pk"
 
-    def update_row(
+        query = sql.SQL("SELECT {} FROM {}").format(
+            sql.SQL(", ").join(sql.Identifier(c) for c in select_cols),
+            sql.Identifier(table_name)
+        )
+
+        # Use named cursor for server-side streaming
+        try:
+            with self.conn.cursor(name=cursor_name) as cur:
+                cur.itersize = batch_size
+                cur.execute(query)
+                
+                while True:
+                    rows = cur.fetchmany(batch_size)
+                    if not rows:
+                        break
+                        
+                    for row in rows:
+                        yield dict(zip(select_cols, row))
+        except psycopg2.Error as e:
+            raise DatabaseError(f"Error iterating rows: {e}")
+
+    def update_batch(
         self,
         table_name: str,
         pk_columns: list[str],
-        pk_values: dict[str, Any],
-        updates: dict[str, Any],
-    ) -> None:
-        """Update a single row.
+        batch_data: list[dict[str, Any]],
+        update_columns: list[str],
+        column_types: Optional[dict[str, str]] = None
+    ) -> int:
+        """Update multiple rows in a single query.
         
         Args:
             table_name: Name of the table
-            pk_columns: Primary key column names
-            pk_values: Primary key values for WHERE clause
-            updates: Column -> new value mapping
-        """
-        if not updates:
-            return
-            
-        set_clause = sql.SQL(", ").join(
-            sql.SQL("{} = %s").format(sql.Identifier(col))
-            for col in updates.keys()
-        )
-        
-        where_clause = sql.SQL(" AND ").join(
-            sql.SQL("{} = %s").format(sql.Identifier(col))
-            for col in pk_columns
-        )
-        
-        query = sql.SQL("UPDATE {} SET {} WHERE {}").format(
-            sql.Identifier(table_name),
-            set_clause,
-            where_clause,
-        )
-        
-        values = list(updates.values()) + [pk_values[col] for col in pk_columns]
-        
-        with self.conn.cursor() as cur:
-            cur.execute(query, values)
-
-    def update_row_by_ctid(
-        self,
-        table_name: str,
-        ctid: Any,
-        updates: dict[str, Any],
-    ) -> None:
-        """Update a single row using ctid (when no primary key).
-        
-        Args:
-            table_name: Name of the table
-            ctid: Row's ctid value
-            updates: Column -> new value mapping
-        """
-        if not updates:
-            return
-            
-        set_clause = sql.SQL(", ").join(
-            sql.SQL("{} = %s").format(sql.Identifier(col))
-            for col in updates.keys()
-        )
-        
-        query = sql.SQL("UPDATE {} SET {} WHERE ctid = %s").format(
-            sql.Identifier(table_name),
-            set_clause,
-        )
-        
-        values = list(updates.values()) + [ctid]
-        
-        with self.conn.cursor() as cur:
-            cur.execute(query, values)
-
-    def fetch_rows_with_ctid(self, table_name: str, columns: list[str]) -> list[dict[str, Any]]:
-        """Fetch rows from table with ctid for tables without primary key.
-        
-        Args:
-            table_name: Name of the table
-            columns: Columns to fetch for obfuscation
+            pk_columns: Primary key columns (empty if using ctid)
+            batch_data: List of dicts containing PK/ctid and new values
+            update_columns: List of columns being updated
+            column_types: Optional mapping of column names to types for casting
             
         Returns:
-            List of dicts with column values including ctid
+            Number of rows updated
         """
-        all_columns = ["ctid"] + columns
+        if not batch_data:
+            return 0
+
+        # Determine if we use PK or ctid
+        use_ctid = not pk_columns
+        id_cols = ["ctid"] if use_ctid else pk_columns
         
+        # Prepare value tuples for execute_values
+        # Structure: (id_val1, id_val2..., update_val1, update_val2...)
+        values_list = []
+        for item in batch_data:
+            row_vals = []
+            # Add identity values
+            for id_col in id_cols:
+                row_vals.append(item[id_col])
+            # Add update values
+            for col in update_columns:
+                row_vals.append(item[col])
+            values_list.append(tuple(row_vals))
+
+        # Define columns for the VALUES clause
+        # v_pk1, v_pk2..., v_col1, v_col2...
+        values_alias_cols = [f"v_id_{i}" for i in range(len(id_cols))]
+        values_alias_cols += [f"v_{col}" for col in update_columns]
+
+        # Build SET clause: col1 = v.v_col1::type
+        set_assignments = []
+        for col in update_columns:
+            target_col = sql.Identifier(col)
+            source_val = sql.Identifier(f"v_{col}")
+            
+            # Apply cast if type is known
+            if column_types and col in column_types:
+                # Handle array types that might start with underscore in udt_name (e.g. _int4)
+                type_name = column_types[col]
+                if type_name.startswith('_'):
+                     # Convert _int4 to int4[] for safer casting syntax if needed, 
+                     # but Postgres usually accepts ::_int4 too.
+                     # Let's try direct udt_name first.
+                     cast_expr = sql.SQL("{}::{}").format(source_val, sql.SQL(type_name))
+                else:
+                     cast_expr = sql.SQL("{}::{}").format(source_val, sql.SQL(type_name))
+                
+                assignment = sql.SQL("{} = {}").format(target_col, cast_expr)
+            else:
+                assignment = sql.SQL("{} = {}").format(target_col, source_val)
+            
+            set_assignments.append(assignment)
+
+        set_clause = sql.SQL(", ").join(set_assignments)
+        
+        # Build WHERE clause: t.pk1 = v.v_id_0
+        id_assignments = []
+        for col, val_alias in zip(id_cols, values_alias_cols[:len(id_cols)]):
+            target_col = sql.Identifier(col)
+            source_val = sql.Identifier(val_alias)
+            
+            # We might need to cast PKs too if they are UUIDs or special types
+            if column_types and col in column_types:
+                type_name = column_types[col]
+                cast_expr = sql.SQL("{}::{}").format(source_val, sql.SQL(type_name))
+                assignment = sql.SQL("{} = {}").format(target_col, cast_expr)
+            elif col == 'ctid':
+                # ctid needs explicit cast to tid usually, or string literal works
+                assignment = sql.SQL("{} = {}::tid").format(target_col, source_val)
+            else:
+                assignment = sql.SQL("{} = {}").format(target_col, source_val)
+            
+            id_assignments.append(assignment)
+
+        where_clause = sql.SQL(" AND ").join(id_assignments)
+
+        # Full query:
+        # UPDATE table AS t
+        # SET ...
+        # FROM (VALUES %s) AS v(...)
+        # WHERE ...
+        query = sql.SQL(
+            "UPDATE {} AS t SET {} FROM (VALUES %s) AS v({}) WHERE {}"
+        ).format(
+            sql.Identifier(table_name),
+            set_clause,
+            sql.SQL(", ").join(sql.Identifier(a) for a in values_alias_cols),
+            where_clause
+        )
+
         with self.conn.cursor() as cur:
-            cur.execute(
-                sql.SQL("SELECT ctid, {} FROM {}").format(
-                    sql.SQL(", ").join(sql.Identifier(c) for c in columns),
-                    sql.Identifier(table_name)
-                )
+            extras.execute_values(
+                cur,
+                query,
+                values_list,
+                template=None,
+                page_size=len(batch_data)
             )
-            
-            rows = []
-            for row in cur.fetchall():
-                rows.append(dict(zip(all_columns, row)))
-            
-            return rows
+            return cur.rowcount
 
     def commit(self) -> None:
         """Commit current transaction."""

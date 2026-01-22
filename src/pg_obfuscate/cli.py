@@ -17,6 +17,7 @@ app = typer.Typer(
     name="pg-obfuscate",
     help="A deterministic PostgreSQL database obfuscation CLI tool.",
     no_args_is_help=True,
+    add_completion=False
 )
 # Initialize console with forced UTF-8 to prevent encoding errors on non-UTF8 terminals (like Windows CMD/Powershell)
 console = Console(force_terminal=True, legacy_windows=False) if os.name == 'nt' else Console()

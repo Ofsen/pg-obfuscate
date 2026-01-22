@@ -14,6 +14,10 @@ pg-obfuscate is designed to be:
 - **Safe by default** - Dry-run mode, confirmation prompts, and integer overflow protection
 - **Extensible** - Multiple obfuscation strategies with precise type casting
 
+> [!CAUTION]
+> **This tool is inherently DESTRUCTIVE.**
+> `pg-obfuscate` modifies data in-place. It is designed to be run on **clones** or **backups** of production data, never on the live production database itself. There is no "undo" button.
+
 ## Installation
 
 ```bash
@@ -95,6 +99,29 @@ pg-obfuscate run --db-url postgres://user:pass@localhost/db --config config.yaml
 - Backup warning displayed
 - Per-table transactions (rollback on error)
 - Integer range enforcement (prevents overflow crashes)
+
+## Safety & Backup Guidelines
+
+### 1. Never Run on Live Production
+
+This tool is intended for creating sanitized datasets for development. Always run it on a restored backup or a database fork.
+
+### 2. Transactional Behavior (Atomicity)
+
+`pg-obfuscate` processes tables one by one.
+
+- If an error occurs during the processing of a table, that **specific table** will be rolled back.
+- However, any tables processed **before** the error occurred will remain obfuscated (committed).
+- If the process is killed (e.g., `Ctrl+C`), the current batch may be partially committed or rolled back depending on the exact timing.
+
+### 3. Recommended Workflow
+
+1.  **Backup:** Create a full dump of your database (`pg_dump`).
+2.  **Restore:** Restore the dump to a dedicated staging/local database.
+3.  **Validate:** Run `pg-obfuscate validate --config config.yaml` to check for schema mismatches.
+4.  **Dry-run:** Run `pg-obfuscate run --dry-run` to see which tables will be affected.
+5.  **Execute:** Run the obfuscation on the restored clone.
+6.  **Verify:** Check the data to ensure relational integrity and obfuscation quality before sharing with the team.
 
 ## Exit Codes
 

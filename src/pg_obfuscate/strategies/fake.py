@@ -120,12 +120,10 @@ class FakeStrategy(BaseStrategy):
         Returns:
             Fake number with similar magnitude and decimal places
         """
-        from decimal import Decimal
-        
         # Convert to string to analyze structure
         str_val = str(original)
         
-        # Determine decimal places
+        # Determine decimal places and integer part
         if "." in str_val:
             integer_part, decimal_part = str_val.split(".", 1)
             decimal_places = len(decimal_part)

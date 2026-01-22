@@ -110,12 +110,6 @@ class Config:
         """
         errors = []
         for table in self.tables:
-            # We assume schema keys are qualified 'schema.table'
-            # But the DB.get_schema needs to change first to return qualified keys.
-            # We will handle backward compatibility or update DB concurrently.
-            # Let's assume schema keys will be 'schema.table'
-            
-            # Try qualified match first
             if table.qualified_name not in schema:
                 errors.append(f"Table '{table.qualified_name}' not found in database")
                 continue

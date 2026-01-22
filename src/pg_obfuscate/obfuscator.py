@@ -14,6 +14,12 @@ from pg_obfuscate.strategies.preserve import PreserveStrategy
 class Obfuscator:
     """Core obfuscation engine."""
 
+    STRATEGY_CLASSES = {
+        "hash": HashStrategy,
+        "null": NullStrategy,
+        "preserve": PreserveStrategy,
+    }
+
     def __init__(self, db: Database, config: Config):
         """Initialize obfuscator.
         
@@ -38,16 +44,14 @@ class Obfuscator:
         key = f"{column_config.strategy}:{column_config.strategy_type or ''}"
         
         if key not in self._strategies:
-            if column_config.strategy == "hash":
-                self._strategies[key] = HashStrategy()
-            elif column_config.strategy == "fake":
+            strat_name = column_config.strategy
+            
+            if strat_name == "fake":
                 self._strategies[key] = FakeStrategy(column_config.strategy_type)
-            elif column_config.strategy == "null":
-                self._strategies[key] = NullStrategy()
-            elif column_config.strategy == "preserve":
-                self._strategies[key] = PreserveStrategy()
+            elif strat_name in self.STRATEGY_CLASSES:
+                self._strategies[key] = self.STRATEGY_CLASSES[strat_name]()
             else:
-                raise ValueError(f"Unknown strategy: {column_config.strategy}")
+                raise ValueError(f"Unknown strategy: {strat_name}")
         
         return self._strategies[key]
 

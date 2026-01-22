@@ -176,13 +176,17 @@ This project is licensed under a **Dual-Licensing** model to support both the op
 
 For individuals, small teams, and open-source projects, `pg-obfuscate` is available under the **GNU Affero General Public License v3.0 (AGPLv3)**. See the [LICENSE](LICENSE) file for the full text.
 
-### 2. Commercial License (Enterprise & Compliance)
+This means:
 
-For companies that cannot or do not wish to comply with the AGPLv3, we offer a **Commercial License** that provides:
+- You are free to use, modify, and distribute the software
+- If you use it in a service or internal tool, you must make your modifications available under the same license
 
-- Full exemption from AGPLv3 source-sharing requirements.
-- Rights for private modification and internal redistribution.
-- Priority support for enterprise schema integration.
+### 2. Commercial License
+
+For companies that cannot or do not wish to comply with the AGPLv3, we offer a [**Commercial License**](COMMERCIAL_LICENSE.md) that provides:
+
+- Use in proprietary/internal systems
+- No obligation to release source code
 
 **For licensing inquiries, custom strategies, or commercial quotes, please contact:**
 ofsen@proton.me

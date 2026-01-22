@@ -3,6 +3,7 @@ name = "pg-obfuscate"
 version = "0.1.0"
 description = "A deterministic PostgreSQL database obfuscation CLI tool"
 readme = "README.md"
+license = "AGPL-3.0-only"
 requires-python = ">=3.10"
 dependencies = [
     "typer>=0.9.0",
@@ -10,6 +11,11 @@ dependencies = [
     "pyyaml>=6.0",
     "faker>=22.0.0",
     "rich>=13.0.0",
+]
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3 (AGPLv3)",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
 ]
 
 [project.scripts]

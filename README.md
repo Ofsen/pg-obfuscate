@@ -1,6 +1,6 @@
 # pg-obfuscate
 
-pg-obfuscate is a developer-first CLI tool that deterministically obfuscates
+pg-obfuscate is an open-source, developer-first CLI tool that deterministically obfuscates
 sensitive data in PostgreSQL databases.
 
 It allows teams to safely share production-like datasets across development,
@@ -134,3 +134,22 @@ This tool is intended for creating sanitized datasets for development. Always ru
 ## Environment Variables
 
 - `PG_OBFUSCATE_DB_URL` - Database connection string
+
+## License & Commercial Use
+
+This project is licensed under a **Dual-Licensing** model to support both the open-source community and commercial enterprise needs.
+
+### 1. Open Source License (AGPLv3)
+
+For individuals, small teams, and open-source projects, `pg-obfuscate` is available under the **GNU Affero General Public License v3.0 (AGPLv3)**. See the [LICENSE](LICENSE) file for the full text.
+
+### 2. Commercial License (Enterprise & Compliance)
+
+For companies that cannot or do not wish to comply with the AGPLv3, we offer a **Commercial License** that provides:
+
+- Full exemption from AGPLv3 source-sharing requirements.
+- Rights for private modification and internal redistribution.
+- Priority support for enterprise schema integration.
+
+**For licensing inquiries, custom strategies, or commercial quotes, please contact:**
+ofsen@proton.me

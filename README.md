@@ -41,7 +41,9 @@ tables:
     name: fake:name
   # Access other schemas using schema.table
   auth.accounts:
-    username: fake:username
+    username:
+      strategy: fake:username
+      consistency_group: user_handles
     password_hash: hash
 ```
 
@@ -64,15 +66,16 @@ pg-obfuscate run --db-url postgres://user:pass@localhost/db --config config.yaml
 - **Streaming**: Data is streamed from PostgreSQL using server-side cursors, preventing Out-of-Memory (OOM) errors even on million-row tables.
 - **Batching**: Updates are executed in batches (2,000 rows by default) to minimize network round-trips and maximize throughput.
 - **Type Safety**: Automatically detects column types to apply explicit casting (e.g., `v::timestamp`), ensuring compatibility with complex PostgreSQL types.
+- **PK-less Support**: Works on tables without primary keys by automatically falling back to PostgreSQL's internal `ctid` for row identification.
 - **Integer Safety**: Automatically detects `smallint` (int2) and `integer` (int4) columns to prevent overflow errors during data generation.
 
 ## Commands
 
-| Command                  | Description          |
-| ------------------------ | -------------------- |
-| `pg-obfuscate run`       | Execute obfuscation  |
-| `pg-obfuscate validate`  | Validate config file |
-| `pg-obfuscate --version` | Show version         |
+| Command                  | Description                                  |
+| ------------------------ | -------------------------------------------- |
+| `pg-obfuscate run`       | Execute obfuscation                          |
+| `pg-obfuscate validate`  | Validate config (optional: check against DB) |
+| `pg-obfuscate --version` | Show version                                 |
 
 ## Obfuscation Strategies
 
@@ -83,11 +86,41 @@ pg-obfuscate run --db-url postgres://user:pass@localhost/db --config config.yaml
 | `null`        | Set to NULL                     |
 | `preserve`    | Keep original value             |
 
+### Consistency Groups
+
+Consistency groups ensure that different columns (even in different tables) produce the same obfuscated output for the same input value. This is essential for maintaining referential integrity across your database.
+
+```yaml
+tables:
+  users:
+    email:
+      strategy: fake:email
+      consistency_group: user_emails
+  newsletter_subs:
+    subscriber_email:
+      strategy: fake:email
+      consistency_group: user_emails
+```
+
+### NULL Preservation
+
+By default, `pg-obfuscate` preserves `NULL` values. If a source column contains a `NULL`, the tool will skip it regardless of the strategy (except for the explicit `null` strategy). This ensures you don't accidentally introduce data into rows that were intentionally empty.
+
+### Schema Validation
+
+Before running a destructive obfuscation, you can validate your configuration against the actual database schema to catch typos or missing columns:
+
+```bash
+pg-obfuscate validate --config config.yaml --db-url postgres://user:pass@localhost/db
+```
+
+This will verify that every table and column listed in your config exists in the database and is accessible.
+
 ### Supported Fake Types
 
 **Text types:** `email`, `name`, `first_name`, `last_name`, `phone`, `address`, `company`, `text`, `city`, `country`, `postcode`, `street_address`, `job`, `url`, `username`, `uuid`
 
-**Numeric types:** `int`, `number`, `float`, `decimal` (Magnitude matching + size safety)
+**Numeric types:** `int`, `number`, `float`, `decimal`, `price`
 
 **Date types:** `date`, `datetime`
 

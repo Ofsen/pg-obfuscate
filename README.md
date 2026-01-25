@@ -1,6 +1,6 @@
 # pg-obfuscate
 
-pg-obfuscate is an open-source, developer-first CLI tool that deterministically obfuscates
+`pg-obfuscate` is an open-source, developer-first CLI tool that deterministically obfuscates
 sensitive data in PostgreSQL databases.
 
 It allows teams to safely share production-like datasets across development,
@@ -9,10 +9,47 @@ staging, and testing environments without leaking real user data.
 pg-obfuscate is designed to be:
 
 - **Deterministic** - Same input + same config = same output
+
+```
+Example:
+
+Input:
+  users.email = "alice@example.com"
+
+Config:
+  seed: 123
+  strategy: fake:email
+
+Output:
+  users.email = "mariah.brown@example.org"
+
+Running pg-obfuscate again with the same config will **always** produce the same output for the same input value.
+```
+
 - **Schema-aware** - Target `public` or custom schemas (e.g., `auth.users`)
 - **Scalable** - Uses server-side cursors and batch updates for high performance and low memory footprint
 - **Safe by default** - Dry-run mode, confirmation prompts, and integer overflow protection
 - **Extensible** - Multiple obfuscation strategies with precise type casting
+
+## How it Works
+
+`pg-obfuscate` operates in three phases:
+
+1. **Plan**
+   - Load config
+   - Inspect database schema
+   - Build an execution plan (what will be changed, where, and how)
+
+2. **Preview**
+   - Count affected rows per table/column
+   - Show a human-readable summary
+   - Make no changes (Dry Run)
+
+3. **Execute**
+   - Only when confirmed
+   - Stream rows in batches
+   - Deterministically transform values
+   - Update rows in-place inside per-table transactions
 
 > [!CAUTION]
 > **This tool is inherently DESTRUCTIVE.**
@@ -51,6 +88,24 @@ tables:
 
 ```bash
 pg-obfuscate run --db-url postgres://user:pass@localhost/db --config config.yaml --dry-run
+```
+
+Example output:
+
+```bash
+[OK] Loaded config from config.example.yaml
+[OK] Connected to database
+                      Obfuscation Summary
+┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━┓
+┃ Table           ┃ Columns                            ┃ Rows ┃
+┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━┩
+│ public.users    │ email, username, phone, created_at │    5 │
+│ public.orders   │ order_total, tax_amount, status    │    7 │
+│ public.profiles │ height                             │    5 │
+└─────────────────┴────────────────────────────────────┴──────┘
+
+Dry run mode - no changes made.
+Error: 0
 ```
 
 3. Execute obfuscation:
@@ -167,6 +222,21 @@ This tool is intended for creating sanitized datasets for development. Always ru
 ## Environment Variables
 
 - `PG_OBFUSCATE_DB_URL` - Database connection string
+
+## What pg-obfuscate Preserves (and What It Doesn’t)
+
+pg-obfuscate preserves:
+
+- **Value equality** (via consistency groups)
+- **Referential integrity** (PK/FK-like relationships)
+- **Data types and constraints**
+- **Repeatability across runs**
+
+pg-obfuscate does **NOT** automatically preserve:
+
+- Derived metrics (e.g. revenue - cost = profit)
+- Statistical distributions across unrelated columns
+- Business semantics between independent numeric fields
 
 ## License & Commercial Use
 

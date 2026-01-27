@@ -58,11 +58,7 @@ Running pg-obfuscate again with the same config will **always** produce the same
 ## Installation
 
 ```bash
-# Using uv (recommended)
-uv pip install -e .
-
-# Or using pip
-pip install -e .
+pip install pg-obfuscate
 ```
 
 ## Quick Start
